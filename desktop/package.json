@@ -12,7 +12,9 @@
     "preview": "electron-vite preview",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "postinstall": "electron-rebuild -f -w better-sqlite3 || true"
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
@@ -20,6 +22,7 @@
     "gray-matter": "^4.0.3"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.7.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
