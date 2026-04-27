@@ -2,6 +2,8 @@ import { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import type { Asset, McpServer, AgentSummary } from '@shared/types'
 import { useScanStore } from '../stores/scanStore'
+import { CodeEditor, inferLanguage } from '../components/CodeEditor'
+import type { BackupRow } from '../api/types'
 
 const TABS: Array<{ key: string; label: string; assetKind: Asset['kind'] | 'mcp' }> = [
   { key: 'skills', label: 'Skills', assetKind: 'skill' },
@@ -144,9 +146,50 @@ export function AgentView() {
 
 function AssetPreview({ asset }: { asset: Asset }) {
   const [raw, setRaw] = useState<string>('')
+  const [draft, setDraft] = useState<string>('')
+  const [editEnabled, setEditEnabled] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [backups, setBackups] = useState<BackupRow[]>([])
+  const navigate = useNavigate()
+  const lang = inferLanguage(asset.sourcePath)
+
   useEffect(() => {
-    window.api.asset.read(asset.id).then((r) => setRaw(r.raw))
+    setError(null)
+    setEditing(false)
+    window.api.asset.read(asset.id).then((r) => {
+      setRaw(r.raw)
+      setDraft(r.raw)
+    })
+    window.api.asset.listBackups(asset.id).then(setBackups)
+    window.api.settings.get('edit_enabled').then((v) => setEditEnabled(v === 'true'))
   }, [asset.id])
+
+  async function save() {
+    setSaving(true)
+    setError(null)
+    try {
+      await window.api.asset.write(asset.id, draft)
+      const fresh = await window.api.asset.read(asset.id)
+      setRaw(fresh.raw)
+      setDraft(fresh.raw)
+      setEditing(false)
+      const list = await window.api.asset.listBackups(asset.id)
+      setBackups(list)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function cancel() {
+    setDraft(raw)
+    setEditing(false)
+    setError(null)
+  }
+
   return (
     <>
       <div className="asset-detail__header">
@@ -158,15 +201,35 @@ function AssetPreview({ asset }: { asset: Asset }) {
             </div>
           ) : null}
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <button className="btn" onClick={() => window.api.fs.openInFinder(asset.sourcePath)}>
             Reveal
           </button>
           <button className="btn" onClick={() => window.api.fs.openPath(asset.sourcePath)}>
             Open
           </button>
+          {!editing ? (
+            <button
+              className="btn btn--primary"
+              disabled={!editEnabled}
+              title={editEnabled ? 'Edit this file' : 'Enable editing in Settings first'}
+              onClick={() => setEditing(true)}
+            >
+              Edit
+            </button>
+          ) : (
+            <>
+              <button className="btn" onClick={cancel} disabled={saving}>Cancel</button>
+              <button className="btn btn--primary" onClick={save} disabled={saving || draft === raw}>
+                {saving ? 'Saving…' : 'Save + Backup'}
+              </button>
+            </>
+          )}
         </div>
       </div>
+
+      {error ? <div className="error-banner">{error}</div> : null}
+
       <div className="asset-detail__meta-grid">
         <div>
           <div className="asset-detail__meta-label">Kind</div>
@@ -191,7 +254,75 @@ function AssetPreview({ asset }: { asset: Asset }) {
           <div className="asset-detail__source">{asset.sourcePath}</div>
         </div>
       </div>
-      <div className="asset-detail__raw">{raw || 'Loading…'}</div>
+
+      <div style={{ flex: 1, minHeight: 220, marginBottom: 8 }}>
+        <CodeEditor
+          value={editing ? draft : raw}
+          language={lang}
+          readOnly={!editing}
+          onChange={editing ? setDraft : undefined}
+          height="100%"
+        />
+      </div>
+
+      {backups.length > 0 ? (
+        <div style={{ marginTop: 6 }}>
+          <div className="asset-detail__meta-label" style={{ marginBottom: 6 }}>
+            Backups ({backups.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 130, overflowY: 'auto' }}>
+            {backups.map((b) => (
+              <div
+                key={b.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  padding: '6px 10px',
+                  background: 'var(--surface-hover)',
+                  borderRadius: 'var(--radius-xs)',
+                }}
+              >
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {new Date(b.editedAt).toLocaleString()}
+                </span>
+                <span style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    className="btn btn--ghost"
+                    style={{ fontSize: 11, padding: '2px 8px' }}
+                    onClick={() =>
+                      navigate(`/diff/${encodeURIComponent(asset.id)}/${encodeURIComponent(b.backupPath)}`)
+                    }
+                  >
+                    Diff
+                  </button>
+                  <button
+                    className="btn btn--ghost"
+                    style={{ fontSize: 11, padding: '2px 8px' }}
+                    disabled={!editEnabled}
+                    onClick={async () => {
+                      if (!confirm(`Revert ${asset.name} to this backup?`)) return
+                      try {
+                        await window.api.asset.revert(asset.id, b.backupPath)
+                        const fresh = await window.api.asset.read(asset.id)
+                        setRaw(fresh.raw)
+                        setDraft(fresh.raw)
+                        setBackups(await window.api.asset.listBackups(asset.id))
+                      } catch (e) {
+                        setError((e as Error).message)
+                      }
+                    }}
+                  >
+                    Revert
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </>
   )
 }

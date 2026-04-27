@@ -212,6 +212,48 @@ export function recordEdit(
   ).run(id, assetId, beforeHash, afterHash, backupPath, Date.now())
 }
 
+export interface EditRow {
+  id: string
+  assetId: string
+  beforeHash: string
+  afterHash: string
+  backupPath: string
+  editedAt: number
+}
+
+export function listEdits(assetId: string): EditRow[] {
+  const db = getDatabase()
+  const rows = db
+    .prepare(
+      `SELECT id, asset_id, before_hash, after_hash, backup_path, edited_at
+       FROM edits WHERE asset_id = ? ORDER BY edited_at DESC`,
+    )
+    .all(assetId) as Array<{
+    id: string
+    asset_id: string
+    before_hash: string
+    after_hash: string
+    backup_path: string
+    edited_at: number
+  }>
+  return rows.map((r) => ({
+    id: r.id,
+    assetId: r.asset_id,
+    beforeHash: r.before_hash,
+    afterHash: r.after_hash,
+    backupPath: r.backup_path,
+    editedAt: r.edited_at,
+  }))
+}
+
+export function updateAssetHashAfterEdit(
+  assetId: string,
+  newHash: string,
+): void {
+  const db = getDatabase()
+  db.prepare(`UPDATE assets SET raw_hash = ? WHERE id = ?`).run(newHash, assetId)
+}
+
 export function getSetting(key: string): string | null {
   const db = getDatabase()
   const row = db.prepare(`SELECT value FROM settings WHERE key = ?`).get(key) as

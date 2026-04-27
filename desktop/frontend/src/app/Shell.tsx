@@ -30,6 +30,12 @@ export function Shell() {
             {running ? <span className="spinner" /> : null}
             {running ? 'Scanning…' : 'Rescan'}
           </button>
+          <Link to="/sync" className="btn btn--ghost" style={{ fontSize: 13 }}>
+            Sync
+          </Link>
+          <Link to="/settings" className="btn btn--ghost" style={{ fontSize: 13 }}>
+            Settings
+          </Link>
           <ModeToggle />
         </div>
       </header>

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { openDatabase, closeDatabase } from './db/migrate'
 import { registerScanIpc } from './ipc/scan'
 import { registerAssetIpc } from './ipc/asset'
+import { registerSyncIpc } from './ipc/sync'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -44,6 +45,7 @@ app.whenReady().then(() => {
 
   registerScanIpc()
   registerAssetIpc()
+  registerSyncIpc()
 
   createMainWindow()
 

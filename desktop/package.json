@@ -18,8 +18,12 @@
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
+    "@monaco-editor/react": "^4.7.0",
+    "@types/tar": "^6.1.13",
     "better-sqlite3": "^12.8.0",
-    "gray-matter": "^4.0.3"
+    "gray-matter": "^4.0.3",
+    "monaco-editor": "^0.55.1",
+    "tar": "^7.5.13"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.0",
@@ -46,8 +50,14 @@
     "files": [
       "out/**/*"
     ],
-    "win": { "target": "nsis" },
-    "mac": { "target": "dmg" },
-    "linux": { "target": "AppImage" }
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
   }
 }

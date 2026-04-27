@@ -1,0 +1,18 @@
+                    GNU AFFERO GENERAL PUBLIC LICENSE
+                       Version 3, 19 November 2007
+
+ Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+The Agents Manager backend is licensed under the GNU Affero General Public
+License v3.0 or later. The full license text is available at:
+
+    https://www.gnu.org/licenses/agpl-3.0.html
+
+If you run a modified version of this server and make it accessible over a
+network (including SaaS hosting), you must offer your users the corresponding
+source code of your modified version under the same license.
+
+The Agents Manager desktop client is distributed separately under the MIT
+license — see /LICENSE at the repository root.

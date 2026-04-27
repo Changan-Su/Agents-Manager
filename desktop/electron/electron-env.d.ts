@@ -9,3 +9,9 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+// Vite worker imports (?worker suffix)
+declare module '*?worker' {
+  const workerConstructor: { new (): Worker }
+  export default workerConstructor
+}
