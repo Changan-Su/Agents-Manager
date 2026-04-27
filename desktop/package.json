@@ -1,0 +1,50 @@
+{
+  "name": "agents-manager-desktop",
+  "version": "0.1.0",
+  "description": "Agents Manager — unified inventory for local AI coding agents (Claude Code, Codex, OpenCode, OpenClaw)",
+  "main": "out/main/main.js",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@iarna/toml": "^2.2.5",
+    "better-sqlite3": "^12.8.0",
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.1.4",
+    "electron": "^40.8.0",
+    "electron-builder": "^24.13.3",
+    "electron-vite": "^5.0.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.0.0",
+    "typescript": "^5.7.0",
+    "zustand": "^5.0.0"
+  },
+  "build": {
+    "appId": "com.agentsmanager.desktop",
+    "productName": "Agents Manager",
+    "directories": {
+      "buildResources": "resources"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "win": { "target": "nsis" },
+    "mac": { "target": "dmg" },
+    "linux": { "target": "AppImage" }
+  }
+}

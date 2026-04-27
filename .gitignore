@@ -1,0 +1,14 @@
+node_modules
+out
+dist
+*.log
+.DS_Store
+.env
+.env.local
+
+# build artifacts
+desktop/out
+desktop/dist
+desktop/release
+backend/dist
+backend/data
