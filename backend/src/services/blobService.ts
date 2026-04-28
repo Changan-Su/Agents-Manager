@@ -4,7 +4,7 @@ import type { StorageDriver } from '../storage'
 
 export interface BlobRow {
   id: string
-  user_id: string
+  machine_id: string
   storage_key: string
   size_bytes: number
   sha256: string
@@ -13,17 +13,17 @@ export interface BlobRow {
 
 export async function storeBlob(
   storage: StorageDriver,
-  userId: string,
+  machineId: string,
   data: Buffer,
 ): Promise<BlobRow> {
   const sha256 = createHash('sha256').update(data).digest('hex')
   const id = randomUUID()
-  const storageKey = `${userId}/${id}.bin`
+  const storageKey = `${machineId}/${id}.bin`
   await storage.put(storageKey, data)
 
   const row: BlobRow = {
     id,
-    user_id: userId,
+    machine_id: machineId,
     storage_key: storageKey,
     size_bytes: data.length,
     sha256,
@@ -31,17 +31,24 @@ export async function storeBlob(
   }
   getDb()
     .prepare(
-      `INSERT INTO blobs (id, user_id, storage_key, size_bytes, sha256, created_at)
+      `INSERT INTO blobs (id, machine_id, storage_key, size_bytes, sha256, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .run(row.id, row.user_id, row.storage_key, row.size_bytes, row.sha256, row.created_at)
+    .run(row.id, row.machine_id, row.storage_key, row.size_bytes, row.sha256, row.created_at)
   return row
 }
 
-export function findBlob(blobId: string, userId: string): BlobRow | null {
+export function findBlob(blobId: string, machineId: string): BlobRow | null {
   const row = getDb()
-    .prepare(`SELECT * FROM blobs WHERE id = ? AND user_id = ?`)
-    .get(blobId, userId) as BlobRow | undefined
+    .prepare(`SELECT * FROM blobs WHERE id = ? AND machine_id = ?`)
+    .get(blobId, machineId) as BlobRow | undefined
+  return row ?? null
+}
+
+export function findBlobAnyMachine(blobId: string): BlobRow | null {
+  const row = getDb()
+    .prepare(`SELECT * FROM blobs WHERE id = ?`)
+    .get(blobId) as BlobRow | undefined
   return row ?? null
 }
 

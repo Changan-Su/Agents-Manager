@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { requireAuth } from '../middleware/auth'
+import { makeRequireApiKey } from '../middleware/auth'
 import {
   storeBlob,
   findBlob,
@@ -14,10 +14,11 @@ export async function blobRoutes(
   opts: { storage: StorageDriver; config: AppConfig },
 ) {
   const { storage, config } = opts
+  const requireApiKey = makeRequireApiKey(config)
 
   // Upload a blob (multipart). Returns { blobId, sizeBytes, sha256 }.
-  fastify.post('/blobs', { preHandler: [requireAuth] }, async (req, reply) => {
-    if (!req.user) return reply.code(401).send({ error: 'unauthorized' })
+  fastify.post('/blobs', { preHandler: [requireApiKey] }, async (req, reply) => {
+    const machineId = req.machineId!
     const data = await req.file()
     if (!data) return reply.code(400).send({ error: 'no file in body' })
 
@@ -29,7 +30,7 @@ export async function blobRoutes(
         .send({ error: `blob exceeds limit (${config.maxBlobBytes} bytes)` })
     }
 
-    const blob = await storeBlob(storage, req.user.sub, buffer)
+    const blob = await storeBlob(storage, machineId, buffer)
     return {
       blobId: blob.id,
       sizeBytes: blob.size_bytes,
@@ -37,10 +38,10 @@ export async function blobRoutes(
     }
   })
 
-  fastify.get('/blobs/:id', { preHandler: [requireAuth] }, async (req, reply) => {
-    if (!req.user) return reply.code(401).send({ error: 'unauthorized' })
+  fastify.get('/blobs/:id', { preHandler: [requireApiKey] }, async (req, reply) => {
+    const machineId = req.machineId!
     const { id } = req.params as { id: string }
-    const blob = findBlob(id, req.user.sub)
+    const blob = findBlob(id, machineId)
     if (!blob) return reply.code(404).send({ error: 'blob not found' })
     const data = await readBlobData(storage, blob)
     reply
@@ -50,10 +51,10 @@ export async function blobRoutes(
     return reply.send(data)
   })
 
-  fastify.delete('/blobs/:id', { preHandler: [requireAuth] }, async (req, reply) => {
-    if (!req.user) return reply.code(401).send({ error: 'unauthorized' })
+  fastify.delete('/blobs/:id', { preHandler: [requireApiKey] }, async (req, reply) => {
+    const machineId = req.machineId!
     const { id } = req.params as { id: string }
-    const blob = findBlob(id, req.user.sub)
+    const blob = findBlob(id, machineId)
     if (!blob) return reply.code(404).send({ error: 'blob not found' })
     await deleteBlob(storage, blob)
     return { ok: true }

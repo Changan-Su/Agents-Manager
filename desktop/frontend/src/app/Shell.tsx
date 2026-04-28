@@ -1,44 +1,23 @@
-import { Link, Outlet, useNavigate } from 'react-router-dom'
+import { Outlet } from 'react-router-dom'
 import { useEffect } from 'react'
-import { ModeToggle } from '../components/ModeToggle'
+import { Sidebar } from '../components/Sidebar'
 import { useScanStore } from '../stores/scanStore'
+import { useSessionsStore } from '../stores/sessionsStore'
 
 export function Shell() {
-  const navigate = useNavigate()
-  const { running, runScan, loadCached } = useScanStore()
+  const loadCached = useScanStore((s) => s.loadCached)
+  const startSessions = useSessionsStore((s) => s.start)
+  const stopSessions = useSessionsStore((s) => s.stop)
 
   useEffect(() => {
     loadCached()
-  }, [loadCached])
+    startSessions()
+    return () => stopSessions()
+  }, [loadCached, startSessions, stopSessions])
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <Link to="/dashboard" className="app-header__brand" style={{ color: 'inherit' }}>
-          <div className="logo" />
-          <span>Agents Manager</span>
-        </Link>
-        <div className="app-header__actions">
-          <button
-            className="btn"
-            onClick={async () => {
-              await runScan()
-              navigate('/dashboard')
-            }}
-            disabled={running}
-          >
-            {running ? <span className="spinner" /> : null}
-            {running ? 'Scanning…' : 'Rescan'}
-          </button>
-          <Link to="/sync" className="btn btn--ghost" style={{ fontSize: 13 }}>
-            Sync
-          </Link>
-          <Link to="/settings" className="btn btn--ghost" style={{ fontSize: 13 }}>
-            Settings
-          </Link>
-          <ModeToggle />
-        </div>
-      </header>
+    <div className="app-shell app-shell--sidebar">
+      <Sidebar />
       <main className="app-main">
         <Outlet />
       </main>

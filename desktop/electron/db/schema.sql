@@ -70,3 +70,19 @@ CREATE TABLE IF NOT EXISTS settings (
   key             TEXT PRIMARY KEY,
   value           TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS repository_items (
+  id              TEXT PRIMARY KEY,
+  kind            TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  version         TEXT,
+  description     TEXT,
+  storage_path    TEXT NOT NULL,
+  manifest_json   TEXT NOT NULL,
+  deployed_to_json TEXT NOT NULL DEFAULT '[]',
+  remote_id       TEXT,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_repo_kind ON repository_items(kind, name);

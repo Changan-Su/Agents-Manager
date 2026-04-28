@@ -62,4 +62,6 @@ CREATE INDEX IF NOT EXISTS idx_edits_asset ON edits(asset_id, edited_at DESC);
 CREATE TABLE IF NOT EXISTS backend_config (id INTEGER PRIMARY KEY CHECK(id = 1), url TEXT, token TEXT, machine_id TEXT);
 CREATE TABLE IF NOT EXISTS snapshots_local (id TEXT PRIMARY KEY, remote_id TEXT, blob_id TEXT, manifest_json TEXT NOT NULL, pushed_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS repository_items (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, version TEXT, description TEXT, storage_path TEXT NOT NULL, manifest_json TEXT NOT NULL, deployed_to_json TEXT NOT NULL DEFAULT '[]', remote_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_repo_kind ON repository_items(kind, name);
 `

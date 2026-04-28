@@ -4,6 +4,9 @@ import { openDatabase, closeDatabase } from './db/migrate'
 import { registerScanIpc } from './ipc/scan'
 import { registerAssetIpc } from './ipc/asset'
 import { registerSyncIpc } from './ipc/sync'
+import { registerSessionsIpc } from './ipc/sessions'
+import { registerRepositoryIpc } from './ipc/repository'
+import { stopSessionWatchers } from './sessions'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -46,6 +49,8 @@ app.whenReady().then(() => {
   registerScanIpc()
   registerAssetIpc()
   registerSyncIpc()
+  registerSessionsIpc()
+  registerRepositoryIpc()
 
   createMainWindow()
 
@@ -55,6 +60,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  stopSessionWatchers()
   closeDatabase()
   if (process.platform !== 'darwin') app.quit()
 })

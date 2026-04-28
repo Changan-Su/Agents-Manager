@@ -1,14 +1,13 @@
 import Fastify from 'fastify'
-import jwtPlugin from '@fastify/jwt'
 import multipart from '@fastify/multipart'
 import cors from '@fastify/cors'
 import { loadConfig } from './config'
 import { openDatabase } from './db/migrate'
 import { LocalFsStorage } from './storage/localFs'
 import type { StorageDriver } from './storage'
-import { authRoutes } from './routes/auth'
 import { blobRoutes } from './routes/blobs'
 import { snapshotRoutes } from './routes/snapshots'
+import { repositoryRoutes } from './routes/repository'
 import { healthRoutes } from './routes/health'
 
 async function main() {
@@ -24,26 +23,30 @@ async function main() {
 
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
-    bodyLimit: 1024 * 1024, // 1MB for JSON bodies; multipart has its own limit
+    bodyLimit: 1024 * 1024,
   })
 
   await app.register(cors, {
     origin: config.corsOrigin,
     credentials: false,
+    // Electron and browser clients need these custom headers passed through.
+    allowedHeaders: ['Content-Type', 'X-Api-Key', 'X-Machine-Id'],
+    exposedHeaders: ['X-Blob-Sha256'],
   })
-  await app.register(jwtPlugin, { secret: config.jwtSecret })
   await app.register(multipart, {
     limits: { fileSize: config.maxBlobBytes },
   })
 
   await app.register((instance) => healthRoutes(instance, { config }), { prefix: '/api' })
-  await app.register((instance) => authRoutes(instance, { config }), { prefix: '/api' })
   await app.register((instance) => blobRoutes(instance, { storage, config }), { prefix: '/api' })
-  await app.register(snapshotRoutes, { prefix: '/api' })
+  await app.register((instance) => snapshotRoutes(instance, { config }), { prefix: '/api' })
+  await app.register((instance) => repositoryRoutes(instance, { config }), { prefix: '/api' })
 
   try {
     await app.listen({ port: config.port, host: config.host })
-    app.log.info(`agents-manager backend listening on ${config.host}:${config.port}`)
+    app.log.info(
+      `agents-manager backend listening on ${config.host}:${config.port} (master-key auth)`,
+    )
   } catch (err) {
     app.log.error(err)
     process.exit(1)

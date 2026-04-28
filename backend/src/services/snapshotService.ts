@@ -3,7 +3,6 @@ import { getDb } from '../db/migrate'
 
 export interface SnapshotRow {
   id: string
-  user_id: string
   machine_id: string
   blob_id: string
   manifest_json: string
@@ -27,7 +26,6 @@ export interface SnapshotManifest {
 }
 
 export function createSnapshot(params: {
-  userId: string
   machineId: string
   blobId: string
   manifest: SnapshotManifest
@@ -37,12 +35,11 @@ export function createSnapshot(params: {
   const now = Date.now()
   getDb()
     .prepare(
-      `INSERT INTO snapshots (id, user_id, machine_id, blob_id, manifest_json, size_bytes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO snapshots (id, machine_id, blob_id, manifest_json, size_bytes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
-      params.userId,
       params.machineId,
       params.blobId,
       JSON.stringify(params.manifest),
@@ -51,7 +48,6 @@ export function createSnapshot(params: {
     )
   return {
     id,
-    user_id: params.userId,
     machine_id: params.machineId,
     blob_id: params.blobId,
     manifest_json: JSON.stringify(params.manifest),
@@ -61,39 +57,35 @@ export function createSnapshot(params: {
 }
 
 export function listSnapshots(
-  userId: string,
   filter: { machineId?: string; limit?: number } = {},
 ): SnapshotRow[] {
   const limit = Math.min(Math.max(filter.limit ?? 50, 1), 500)
   if (filter.machineId) {
     return getDb()
       .prepare(
-        `SELECT * FROM snapshots WHERE user_id = ? AND machine_id = ?
+        `SELECT * FROM snapshots WHERE machine_id = ?
          ORDER BY created_at DESC LIMIT ?`,
       )
-      .all(userId, filter.machineId, limit) as SnapshotRow[]
+      .all(filter.machineId, limit) as SnapshotRow[]
   }
   return getDb()
-    .prepare(`SELECT * FROM snapshots WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`)
-    .all(userId, limit) as SnapshotRow[]
+    .prepare(`SELECT * FROM snapshots ORDER BY created_at DESC LIMIT ?`)
+    .all(limit) as SnapshotRow[]
 }
 
-export function findSnapshot(snapshotId: string, userId: string): SnapshotRow | null {
+export function findSnapshot(snapshotId: string): SnapshotRow | null {
   const row = getDb()
-    .prepare(`SELECT * FROM snapshots WHERE id = ? AND user_id = ?`)
-    .get(snapshotId, userId) as SnapshotRow | undefined
+    .prepare(`SELECT * FROM snapshots WHERE id = ?`)
+    .get(snapshotId) as SnapshotRow | undefined
   return row ?? null
 }
 
-export function deleteSnapshot(snapshotId: string, userId: string): boolean {
-  const r = getDb()
-    .prepare(`DELETE FROM snapshots WHERE id = ? AND user_id = ?`)
-    .run(snapshotId, userId)
+export function deleteSnapshot(snapshotId: string): boolean {
+  const r = getDb().prepare(`DELETE FROM snapshots WHERE id = ?`).run(snapshotId)
   return r.changes > 0
 }
 
 export function recordMachine(params: {
-  userId: string
   machineId: string
   label: string
   os?: string
@@ -101,16 +93,16 @@ export function recordMachine(params: {
   const db = getDb()
   const now = Date.now()
   db.prepare(
-    `INSERT INTO machines (id, user_id, machine_id, label, os, first_seen_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(user_id, machine_id) DO UPDATE SET
+    `INSERT INTO machines (machine_id, label, os, first_seen_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(machine_id) DO UPDATE SET
        label = excluded.label,
        os = COALESCE(excluded.os, machines.os),
        last_seen_at = excluded.last_seen_at`,
-  ).run(randomUUID(), params.userId, params.machineId, params.label, params.os ?? null, now, now)
+  ).run(params.machineId, params.label, params.os ?? null, now, now)
 }
 
-export function listMachines(userId: string): Array<{
+export function listMachines(): Array<{
   machineId: string
   label: string
   os: string | null
@@ -120,9 +112,9 @@ export function listMachines(userId: string): Array<{
   const rows = getDb()
     .prepare(
       `SELECT machine_id, label, os, first_seen_at, last_seen_at
-       FROM machines WHERE user_id = ? ORDER BY last_seen_at DESC`,
+       FROM machines ORDER BY last_seen_at DESC`,
     )
-    .all(userId) as Array<{
+    .all() as Array<{
     machine_id: string
     label: string
     os: string | null

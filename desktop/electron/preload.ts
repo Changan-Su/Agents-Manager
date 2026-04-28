@@ -5,6 +5,15 @@ import type {
   Asset,
   AssetReadResponse,
   McpServer,
+  AgentKind,
+  ClaudeSession,
+  DeployResult,
+  DeployTarget,
+  ProcessRow,
+  RepositoryItem,
+  RepositoryKind,
+  SessionListPayload,
+  SessionTailResponse,
 } from '../../shared/types'
 
 export interface BackupRow {
@@ -14,6 +23,38 @@ export interface BackupRow {
   afterHash: string
   backupPath: string
   editedAt: number
+}
+
+export interface SyncSnapshot {
+  id: string
+  machineId: string
+  blobId: string
+  manifest: {
+    agentInventory: Array<{ kind: string; counts: Record<string, number>; version?: string }>
+    encryption?: { algorithm: string; kdf?: string; saltB64?: string }
+    clientVersion?: string
+    createdAt: number
+  }
+  sizeBytes: number
+  createdAt: number
+}
+
+export interface BackendHealth {
+  ok: boolean
+  version: string
+  auth: string
+  storage: string
+  machines: number
+  snapshots: number
+}
+
+export interface SyncStatus {
+  connected: boolean
+  backendUrl?: string
+  machineId: string
+  machineLabel: string
+  health?: BackendHealth
+  error?: string
 }
 
 const api = {
@@ -58,30 +99,13 @@ const api = {
       ipcRenderer.invoke('settings:set', { key, value }),
   },
   sync: {
-    configure: (
+    connect: (
       backendUrl: string,
-    ): Promise<{ ok: boolean; health: { ok: boolean; version: string; storage: string; users: number; snapshots: number } }> =>
-      ipcRenderer.invoke('sync:configure', { backendUrl }),
-    login: (
-      email: string,
-      password: string,
-    ): Promise<{ user: { id: string; email: string; role: string } }> =>
-      ipcRenderer.invoke('sync:login', { email, password }),
-    register: (
-      email: string,
-      password: string,
-    ): Promise<{ user: { id: string; email: string; role: string } }> =>
-      ipcRenderer.invoke('sync:register', { email, password }),
-    logout: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('sync:logout'),
-    status: (): Promise<{
-      configured: boolean
-      signedIn: boolean
-      backendUrl?: string
-      user?: { id: string; email: string; role: string }
-      machineId?: string
-      machineLabel?: string
-      error?: string
-    }> => ipcRenderer.invoke('sync:status'),
+      apiKey: string,
+    ): Promise<{ ok: boolean; health: BackendHealth; machineId: string }> =>
+      ipcRenderer.invoke('sync:connect', { backendUrl, apiKey }),
+    disconnect: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('sync:disconnect'),
+    status: (): Promise<SyncStatus> => ipcRenderer.invoke('sync:status'),
     push: (
       passphrase: string,
     ): Promise<{
@@ -111,23 +135,65 @@ const api = {
     delete: (snapshotId: string): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke('sync:delete', { snapshotId }),
   },
-}
-
-export interface SyncSnapshot {
-  id: string
-  machineId: string
-  blobId: string
-  manifest: {
-    agentInventory: Array<{ kind: string; counts: Record<string, number>; version?: string }>
-    encryption?: { algorithm: string; kdf?: string; saltB64?: string }
-    clientVersion?: string
-    createdAt: number
-  }
-  sizeBytes: number
-  createdAt: number
+  sessions: {
+    list: (): Promise<SessionListPayload> => ipcRenderer.invoke('sessions:list'),
+    tail: (sessionId: string, lines?: number): Promise<SessionTailResponse> =>
+      ipcRenderer.invoke('sessions:tail', { sessionId, lines }),
+    onUpdate(cb: (payload: SessionListPayload) => void): () => void {
+      const handler = (_evt: unknown, payload: SessionListPayload) => cb(payload)
+      ipcRenderer.on('sessions:update', handler)
+      return () => ipcRenderer.removeListener('sessions:update', handler)
+    },
+  },
+  repository: {
+    list: (kind?: RepositoryKind): Promise<RepositoryItem[]> =>
+      ipcRenderer.invoke('repo:list', { kind }),
+    get: (id: string): Promise<RepositoryItem | null> =>
+      ipcRenderer.invoke('repo:get', { id }),
+    read: (
+      id: string,
+    ): Promise<{
+      item: RepositoryItem
+      files: Array<{ relPath: string; content: string }>
+    }> => ipcRenderer.invoke('repo:read', { id }),
+    create: (payload: {
+      kind: RepositoryKind
+      name: string
+      version?: string
+      description?: string
+      files: Array<{ relPath: string; content: string }>
+      primaryFile?: string
+      mcpServerEntry?: RepositoryItem['manifest']['mcpServerEntry']
+    }): Promise<RepositoryItem> => ipcRenderer.invoke('repo:create', payload),
+    update: (payload: {
+      id: string
+      name?: string
+      version?: string
+      description?: string
+      files?: Array<{ relPath: string; content: string }>
+      primaryFile?: string
+      mcpServerEntry?: RepositoryItem['manifest']['mcpServerEntry']
+    }): Promise<RepositoryItem> => ipcRenderer.invoke('repo:update', payload),
+    delete: (id: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('repo:delete', { id }),
+    importFromAsset: (assetId: string): Promise<RepositoryItem> =>
+      ipcRenderer.invoke('repo:importFromAsset', { assetId }),
+    importMcp: (agentKind: AgentKind, name: string): Promise<RepositoryItem> =>
+      ipcRenderer.invoke('repo:importMcp', { agentKind, name }),
+    deploy: (id: string, targets: DeployTarget[]): Promise<DeployResult> =>
+      ipcRenderer.invoke('repo:deploy', { id, targets }),
+    undeploy: (
+      id: string,
+      deploymentId: string,
+    ): Promise<{ ok: boolean; removed?: string; error?: string }> =>
+      ipcRenderer.invoke('repo:undeploy', { id, deploymentId }),
+  },
 }
 
 contextBridge.exposeInMainWorld('api', api)
+
+// Re-export the types touched by the renderer.
+export type { ClaudeSession, ProcessRow, SessionListPayload, SessionTailResponse, RepositoryItem, RepositoryKind, DeployTarget, DeployResult }
 
 export type AgentsManagerApi = typeof api
 declare global {

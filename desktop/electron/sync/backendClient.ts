@@ -22,49 +22,66 @@ export interface MachineMeta {
   lastSeenAt: number
 }
 
-interface AuthResponse {
-  token: string
-  user: { id: string; email: string; role: string }
+export interface RepositoryItemMeta {
+  id: string
+  kind: string
+  name: string
+  version: string | null
+  blobId: string
+  manifest: {
+    files: Array<{ archivePath: string; sizeBytes: number; mode?: number }>
+    description?: string
+    encryption?: { algorithm: string; kdf?: string; saltB64?: string }
+    clientVersion?: string
+  }
+  createdAt: number
+  updatedAt: number
+}
+
+export interface HealthInfo {
+  ok: boolean
+  version: string
+  auth: string
+  storage: string
+  machines: number
+  snapshots: number
 }
 
 export class BackendClient {
   constructor(
     public baseUrl: string,
-    private token: string | null = null,
+    private apiKey: string | null,
+    private machineId: string | null,
   ) {
     this.baseUrl = baseUrl.replace(/\/$/, '')
   }
 
-  setToken(token: string | null) {
-    this.token = token
-  }
-
   private headers(extra: Record<string, string> = {}): Record<string, string> {
     const h: Record<string, string> = { ...extra }
-    if (this.token) h['Authorization'] = `Bearer ${this.token}`
+    if (this.apiKey) h['X-Api-Key'] = this.apiKey
+    if (this.machineId) h['X-Machine-Id'] = this.machineId
     return h
   }
 
-  async health(): Promise<{ ok: boolean; version: string; storage: string; users: number; snapshots: number }> {
+  async health(): Promise<HealthInfo> {
     const res = await fetch(`${this.baseUrl}/api/health`)
     if (!res.ok) throw new Error(`health ${res.status}`)
-    return res.json() as Promise<{ ok: boolean; version: string; storage: string; users: number; snapshots: number }>
+    return res.json() as Promise<HealthInfo>
   }
 
-  async register(email: string, password: string): Promise<AuthResponse> {
-    const r = await this.postJson<AuthResponse>('/api/auth/register', { email, password })
-    this.token = r.token
-    return r
-  }
-
-  async login(email: string, password: string): Promise<AuthResponse> {
-    const r = await this.postJson<AuthResponse>('/api/auth/login', { email, password })
-    this.token = r.token
-    return r
-  }
-
-  async me(): Promise<{ id: string; email: string; role: string }> {
-    return this.getJson('/api/auth/me')
+  // Probe an authenticated endpoint to confirm the API key is valid for this
+  // server. Cheaper than uploading anything; returns 200 on success.
+  async verifyKey(): Promise<{ ok: true } | never> {
+    const res = await fetch(`${this.baseUrl}/api/snapshots?limit=1`, {
+      headers: this.headers(),
+    })
+    if (res.status === 401) {
+      throw new Error('invalid API key')
+    }
+    if (!res.ok) {
+      throw new Error(`verify ${res.status}: ${await res.text()}`)
+    }
+    return { ok: true }
   }
 
   async uploadBlob(buffer: Buffer): Promise<{ blobId: string; sizeBytes: number; sha256: string }> {
@@ -87,6 +104,16 @@ export class BackendClient {
     if (!res.ok) throw new Error(`download ${res.status}`)
     const ab = await res.arrayBuffer()
     return Buffer.from(ab)
+  }
+
+  async deleteBlob(blobId: string): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/api/blobs/${encodeURIComponent(blobId)}`, {
+      method: 'DELETE',
+      headers: this.headers(),
+    })
+    if (!res.ok && res.status !== 404) {
+      throw new Error(`delete blob ${res.status}: ${await res.text()}`)
+    }
   }
 
   async createSnapshot(body: {
@@ -123,6 +150,37 @@ export class BackendClient {
 
   async listMachines(): Promise<{ machines: MachineMeta[] }> {
     return this.getJson('/api/machines')
+  }
+
+  // ── Repository ─────────────────────────────────────────────────────────
+
+  async listRepository(kind?: string): Promise<{ items: RepositoryItemMeta[] }> {
+    const q = kind ? `?kind=${encodeURIComponent(kind)}` : ''
+    return this.getJson(`/api/repository${q}`)
+  }
+
+  async upsertRepositoryItem(body: {
+    id?: string
+    kind: string
+    name: string
+    version?: string
+    blobId: string
+    manifest: RepositoryItemMeta['manifest']
+  }): Promise<RepositoryItemMeta> {
+    return this.postJson('/api/repository', body)
+  }
+
+  async getRepositoryItem(id: string): Promise<RepositoryItemMeta> {
+    return this.getJson(`/api/repository/${encodeURIComponent(id)}`)
+  }
+
+  async deleteRepositoryItem(id: string): Promise<{ ok: boolean }> {
+    const res = await fetch(`${this.baseUrl}/api/repository/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: this.headers(),
+    })
+    if (!res.ok) throw new Error(`delete repo ${res.status}`)
+    return res.json() as Promise<{ ok: boolean }>
   }
 
   // ── helpers ────────────────────────────────────────────────────────────

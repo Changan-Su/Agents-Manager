@@ -2,20 +2,16 @@ import { ipcMain, app } from 'electron'
 import { hostname, platform, release } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { dirname } from 'node:path'
 import { adapters } from '../scanner/registry'
-import {
-  getSetting,
-  setSetting,
-} from '../db/queries'
+import { getSetting, setSetting } from '../db/queries'
 import { encrypt, decrypt } from '../sync/encrypt'
 import { packTarball, unpackTarball } from '../sync/tarball'
-import { BackendClient } from '../sync/backendClient'
-import type { SnapshotMeta } from '../sync/backendClient'
-import type { Asset, AgentKind } from '../../../shared/types'
+import { BackendClient, type HealthInfo } from '../sync/backendClient'
+import type { Asset } from '../../../shared/types'
 
 const KEY_BACKEND_URL = 'backend_url'
-const KEY_BACKEND_TOKEN = 'backend_token'
+const KEY_API_KEY = 'backend_api_key'
 const KEY_MACHINE_ID = 'machine_id'
 
 function getOrCreateMachineId(): string {
@@ -37,9 +33,9 @@ function getOsLabel(): string {
 
 function makeClient(): BackendClient {
   const url = getSetting(KEY_BACKEND_URL)
-  const token = getSetting(KEY_BACKEND_TOKEN)
-  if (!url) throw new Error('backend not configured')
-  return new BackendClient(url, token)
+  const apiKey = getSetting(KEY_API_KEY)
+  if (!url || !apiKey) throw new Error('backend not connected — open Sync to connect')
+  return new BackendClient(url, apiKey, getOrCreateMachineId())
 }
 
 function isInsideAgentRoot(absPath: string, root: string): boolean {
@@ -48,9 +44,6 @@ function isInsideAgentRoot(absPath: string, root: string): boolean {
   return a === r || absPath === root || a.startsWith(r)
 }
 
-// Recompute the set of legitimate agent roots so sync:apply can refuse to
-// write outside any known agent's root directory. Without this gate, a
-// compromised renderer could call sync:apply with absPath=/etc/passwd.
 async function detectAgentRoots(): Promise<string[]> {
   const roots: string[] = []
   for (const a of adapters) {
@@ -66,69 +59,71 @@ function isInsideAnyRoot(absPath: string, roots: string[]): boolean {
 
 export function registerSyncIpc(): void {
   ipcMain.handle(
-    'sync:configure',
-    async (_evt, { backendUrl }: { backendUrl: string }) => {
-      const url = backendUrl.replace(/\/$/, '')
-      const probe = new BackendClient(url)
-      const health = await probe.health()
+    'sync:connect',
+    async (_evt, { backendUrl, apiKey }: { backendUrl: string; apiKey: string }) => {
+      const url = backendUrl.trim().replace(/\/$/, '')
+      if (!url) throw new Error('backendUrl required')
+      if (!apiKey || apiKey.length < 16) {
+        throw new Error('apiKey must be at least 16 characters')
+      }
+      const machineId = getOrCreateMachineId()
+
+      // 1. probe /health (no auth) — surfaces typos / wrong port quickly.
+      const probe = new BackendClient(url, null, null)
+      let health: HealthInfo
+      try {
+        health = await probe.health()
+      } catch (e) {
+        throw new Error(`cannot reach ${url}/api/health: ${(e as Error).message}`)
+      }
+
+      // 2. verify the api key against an authed endpoint.
+      const authed = new BackendClient(url, apiKey, machineId)
+      await authed.verifyKey()
+
       setSetting(KEY_BACKEND_URL, url)
-      return { ok: true, health }
+      setSetting(KEY_API_KEY, apiKey)
+      return { ok: true, health, machineId }
     },
   )
 
-  ipcMain.handle(
-    'sync:login',
-    async (_evt, { email, password }: { email: string; password: string }) => {
-      const url = getSetting(KEY_BACKEND_URL)
-      if (!url) throw new Error('backend not configured')
-      const client = new BackendClient(url)
-      const { token, user } = await client.login(email, password)
-      setSetting(KEY_BACKEND_TOKEN, token)
-      return { user }
-    },
-  )
-
-  ipcMain.handle(
-    'sync:register',
-    async (_evt, { email, password }: { email: string; password: string }) => {
-      const url = getSetting(KEY_BACKEND_URL)
-      if (!url) throw new Error('backend not configured')
-      const client = new BackendClient(url)
-      const { token, user } = await client.register(email, password)
-      setSetting(KEY_BACKEND_TOKEN, token)
-      return { user }
-    },
-  )
+  ipcMain.handle('sync:disconnect', async () => {
+    setSetting(KEY_BACKEND_URL, '')
+    setSetting(KEY_API_KEY, '')
+    return { ok: true }
+  })
 
   ipcMain.handle('sync:status', async () => {
     const url = getSetting(KEY_BACKEND_URL)
-    const token = getSetting(KEY_BACKEND_TOKEN)
-    if (!url) return { configured: false, signedIn: false }
-    if (!token) return { configured: true, signedIn: false, backendUrl: url }
+    const apiKey = getSetting(KEY_API_KEY)
+    const machineId = getOrCreateMachineId()
+    const machineLabel = getMachineLabel()
+
+    if (!url || !apiKey) {
+      return { connected: false, machineId, machineLabel }
+    }
     try {
       const client = makeClient()
-      const me = await client.me()
+      const health = await client.health()
+      // Cheap auth check — the call also succeeds with a stale key (since
+      // /health is public), so do a separate authed probe.
+      await client.verifyKey()
       return {
-        configured: true,
-        signedIn: true,
+        connected: true,
         backendUrl: url,
-        user: me,
-        machineId: getOrCreateMachineId(),
-        machineLabel: getMachineLabel(),
+        machineId,
+        machineLabel,
+        health,
       }
     } catch (e) {
       return {
-        configured: true,
-        signedIn: false,
+        connected: false,
         backendUrl: url,
+        machineId,
+        machineLabel,
         error: (e as Error).message,
       }
     }
-  })
-
-  ipcMain.handle('sync:logout', async () => {
-    setSetting(KEY_BACKEND_TOKEN, '')
-    return { ok: true }
   })
 
   ipcMain.handle(
@@ -138,8 +133,8 @@ export function registerSyncIpc(): void {
         throw new Error('passphrase must be at least 8 characters')
       }
       const client = makeClient()
+      const machineId = getOrCreateMachineId()
 
-      // 1) Build a fresh inventory + collect all source files
       const inventory: Array<{ kind: string; counts: Record<string, number>; version?: string }> = []
       const tarEntries: Array<{ agentKind: string; rootPath: string; absPath: string }> = []
 
@@ -181,21 +176,15 @@ export function registerSyncIpc(): void {
 
       if (tarEntries.length === 0) throw new Error('nothing to back up — scan first')
 
-      // 2) Pack tarball
       const { buffer, manifest: tarManifest } = await packTarball(tarEntries)
-
-      // 3) Encrypt
       const { ciphertext, metadata } = encrypt(buffer, passphrase)
-
-      // 4) Upload blob
       const blob = await client.uploadBlob(ciphertext)
 
-      // 5) Register snapshot — if this fails, delete the orphan blob.
       let snap
       try {
         snap = await client.createSnapshot({
           blobId: blob.blobId,
-          machineId: getOrCreateMachineId(),
+          machineId,
           machineLabel: getMachineLabel(),
           os: getOsLabel(),
           manifest: {
@@ -207,19 +196,11 @@ export function registerSyncIpc(): void {
           sizeBytes: ciphertext.length,
         })
       } catch (snapshotErr) {
-        // Best-effort cleanup of the orphan blob. Surface both errors.
+        // Best-effort cleanup of the orphan blob.
         try {
-          // BackendClient doesn't expose deleteBlob — call the endpoint directly.
-          const url = getSetting(KEY_BACKEND_URL)
-          const token = getSetting(KEY_BACKEND_TOKEN)
-          if (url && token) {
-            await fetch(`${url}/api/blobs/${encodeURIComponent(blob.blobId)}`, {
-              method: 'DELETE',
-              headers: { Authorization: `Bearer ${token}` },
-            })
-          }
+          await client.deleteBlob(blob.blobId)
         } catch {
-          // ignore — surfaces in next admin review of orphan blobs
+          // ignore — the orphan will surface on next admin review.
         }
         throw snapshotErr
       }
@@ -271,8 +252,6 @@ export function registerSyncIpc(): void {
       }: { stagingDir: string; targets: Array<{ archiveRel: string; absPath: string }> },
     ) => {
       const { resolve } = await import('node:path')
-      // Reject staging paths we didn't create — sync:pull always returns a
-      // tmpdir under os.tmpdir(); refuse anything else.
       const { tmpdir } = await import('node:os')
       const stagingAbs = resolve(stagingDir)
       const tmpAbs = resolve(tmpdir())
@@ -284,13 +263,11 @@ export function registerSyncIpc(): void {
       const errors: string[] = []
       for (const t of targets) {
         try {
-          // archiveRel must not escape the staging dir
           const src = resolve(stagingAbs, t.archiveRel)
           if (!src.startsWith(stagingAbs + '/') && src !== stagingAbs) {
             errors.push(`refusing source outside staging: ${t.archiveRel}`)
             continue
           }
-          // absPath must land inside a known agent root
           const targetAbs = resolve(t.absPath)
           if (!isInsideAnyRoot(targetAbs, knownRoots)) {
             errors.push(`refusing target outside agent roots: ${t.absPath}`)
@@ -326,5 +303,3 @@ export function registerSyncIpc(): void {
     },
   )
 }
-
-export type { SnapshotMeta }

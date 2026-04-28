@@ -1,5 +1,11 @@
 import type Database from 'better-sqlite3'
-import type { Asset, McpServer, AgentSummary } from '../../../shared/types'
+import type {
+  Asset,
+  McpServer,
+  AgentSummary,
+  RepositoryItem,
+  RepositoryKind,
+} from '../../../shared/types'
 import { getDatabase } from './migrate'
 
 export function recordScan(
@@ -269,3 +275,103 @@ export function setSetting(key: string, value: string): void {
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
   ).run(key, value)
 }
+
+// ── Repository ────────────────────────────────────────────────────────────
+
+interface RepoRow {
+  id: string
+  kind: string
+  name: string
+  version: string | null
+  description: string | null
+  storage_path: string
+  manifest_json: string
+  deployed_to_json: string
+  remote_id: string | null
+  created_at: number
+  updated_at: number
+}
+
+function toRepoItem(r: RepoRow): RepositoryItem {
+  return {
+    id: r.id,
+    kind: r.kind as RepositoryKind,
+    name: r.name,
+    version: r.version ?? undefined,
+    description: r.description ?? undefined,
+    storagePath: r.storage_path,
+    manifest: JSON.parse(r.manifest_json),
+    deployedTo: JSON.parse(r.deployed_to_json),
+    remoteId: r.remote_id ?? undefined,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }
+}
+
+export function repoInsert(item: RepositoryItem): void {
+  const db = getDatabase()
+  db.prepare(
+    `INSERT INTO repository_items
+       (id, kind, name, version, description, storage_path, manifest_json,
+        deployed_to_json, remote_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    item.id,
+    item.kind,
+    item.name,
+    item.version ?? null,
+    item.description ?? null,
+    item.storagePath,
+    JSON.stringify(item.manifest),
+    JSON.stringify(item.deployedTo),
+    item.remoteId ?? null,
+    item.createdAt,
+    item.updatedAt,
+  )
+}
+
+export function repoUpdate(item: RepositoryItem): void {
+  const db = getDatabase()
+  db.prepare(
+    `UPDATE repository_items
+       SET kind=?, name=?, version=?, description=?, storage_path=?,
+           manifest_json=?, deployed_to_json=?, remote_id=?, updated_at=?
+     WHERE id=?`,
+  ).run(
+    item.kind,
+    item.name,
+    item.version ?? null,
+    item.description ?? null,
+    item.storagePath,
+    JSON.stringify(item.manifest),
+    JSON.stringify(item.deployedTo),
+    item.remoteId ?? null,
+    item.updatedAt,
+    item.id,
+  )
+}
+
+export function repoFind(id: string): RepositoryItem | null {
+  const row = getDatabase()
+    .prepare(`SELECT * FROM repository_items WHERE id = ?`)
+    .get(id) as RepoRow | undefined
+  return row ? toRepoItem(row) : null
+}
+
+export function repoList(kind?: RepositoryKind): RepositoryItem[] {
+  const db = getDatabase()
+  const rows = (
+    kind
+      ? db.prepare(`SELECT * FROM repository_items WHERE kind = ? ORDER BY name`).all(kind)
+      : db.prepare(`SELECT * FROM repository_items ORDER BY kind, name`).all()
+  ) as RepoRow[]
+  return rows.map(toRepoItem)
+}
+
+export function repoDelete(id: string): boolean {
+  const r = getDatabase().prepare(`DELETE FROM repository_items WHERE id = ?`).run(id)
+  return r.changes > 0
+}
+
+// keep the type import non-erased
+void ({} as Database.Database)

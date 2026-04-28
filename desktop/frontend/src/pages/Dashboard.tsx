@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom'
 import { useScanStore } from '../stores/scanStore'
-import type { AgentSummary } from '@shared/types'
+import { useSessionsStore } from '../stores/sessionsStore'
+import { StatusDot } from '../components/StatusDot'
+import type { AgentSummary, ClaudeSession } from '@shared/types'
 
 const KIND_LABEL: Record<AgentSummary['kind'], string> = {
   'claude-code': 'Claude Code',
@@ -20,6 +22,8 @@ function formatRelative(ts: number | null): string {
 
 export function Dashboard() {
   const { agents, running, error, runScan, lastScanAt } = useScanStore()
+  const { claude, processes } = useSessionsStore()
+  const liveClaude = claude.filter((c) => c.alive)
 
   if (!agents.length && !running) {
     return (
@@ -38,24 +42,58 @@ export function Dashboard() {
   const missing = agents.filter((a) => !a.present)
 
   return (
-    <div>
+    <div className="page-grid">
       {error ? <div className="error-banner">{error}</div> : null}
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+      <header className="page-header">
         <div>
-          <h1 style={{ margin: 0, fontSize: 24 }}>Detected agents</h1>
-          {lastScanAt ? (
-            <div style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
-              Last scan: {formatRelative(lastScanAt)}
-            </div>
-          ) : null}
+          <h1>Dashboard</h1>
+          <div className="page-header__sub">
+            {detected.length} detected agent{detected.length === 1 ? '' : 's'}
+            {lastScanAt ? <> · last scan {formatRelative(lastScanAt)}</> : null}
+          </div>
         </div>
-      </div>
+      </header>
+
+      {/* Active sessions strip */}
+      <section className="dashboard-strip">
+        <div className="dashboard-strip__head">
+          <div>
+            <div className="dashboard-strip__title">Active sessions</div>
+            <div className="page-header__sub">
+              {liveClaude.length} Claude Code · {processes.length} other agent
+              {processes.length === 1 ? '' : 's'}
+            </div>
+          </div>
+          <Link to="/sessions" className="btn btn--ghost" style={{ fontSize: 12 }}>
+            View all →
+          </Link>
+        </div>
+        {liveClaude.length === 0 && processes.length === 0 ? (
+          <div className="muted small" style={{ marginTop: 8 }}>
+            Nothing running right now.
+          </div>
+        ) : (
+          <div className="session-strip">
+            {liveClaude.slice(0, 5).map((s) => (
+              <ActiveSessionPill key={s.sessionId} session={s} />
+            ))}
+            {processes.slice(0, 4).map((p) => (
+              <div key={p.pid} className="session-pill">
+                <StatusDot kind="busy" />
+                <span style={{ fontWeight: 500 }}>{p.agentKind}</span>
+                <span className="muted small">PID {p.pid}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <div className="card-grid">
-        {detected.map((a) => (
-          <AgentCard key={a.kind} summary={a} />
-        ))}
+        {detected.map((a) => {
+          const live = liveClaude.filter((c) => agentKindFromCwd(c.cwd) === a.kind).length
+          return <AgentCard key={a.kind} summary={a} liveSessions={live} />
+        })}
       </div>
 
       {missing.length > 0 && (
@@ -78,13 +116,40 @@ export function Dashboard() {
   )
 }
 
-function AgentCard({ summary }: { summary: AgentSummary }) {
+function ActiveSessionPill({ session }: { session: ClaudeSession }) {
+  const status = session.status === 'busy' ? 'busy' : session.status === 'waiting' ? 'idle' : 'idle'
+  return (
+    <Link to="/sessions" className="session-pill" style={{ textDecoration: 'none' }}>
+      <StatusDot kind={status} />
+      <span style={{ fontWeight: 500 }}>{session.name ?? session.sessionId.slice(0, 8)}</span>
+      <span className="muted small">PID {session.pid}</span>
+      {session.cwd ? (
+        <span className="muted small mono" title={session.cwd}>
+          {short(session.cwd)}
+        </span>
+      ) : null}
+    </Link>
+  )
+}
+
+function AgentCard({ summary, liveSessions }: { summary: AgentSummary; liveSessions: number }) {
   const c = summary.counts
   return (
-    <Link to={`/agent/${summary.kind}`} className="agent-card" style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
+    <Link
+      to={`/agent/${summary.kind}`}
+      className="agent-card"
+      style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}
+    >
       <div className="agent-card__title">
         {KIND_LABEL[summary.kind]}
-        <span className="status-pill">detected</span>
+        {liveSessions > 0 ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <StatusDot kind="busy" />
+            <span className="status-pill" style={{ fontSize: 10 }}>{liveSessions} live</span>
+          </span>
+        ) : (
+          <span className="status-pill">detected</span>
+        )}
       </div>
       <div className="agent-card__path">{summary.root}</div>
       <div className="chip-row">
@@ -102,4 +167,18 @@ function AgentCard({ summary }: { summary: AgentSummary }) {
       ) : null}
     </Link>
   )
+}
+
+function agentKindFromCwd(_cwd: string): AgentSummary['kind'] {
+  // We can't (easily) tell which agent kind a Claude session belongs to from
+  // its cwd alone — Claude Code is the only one we currently surface in
+  // ClaudeSessionWatcher, so attribute everything to claude-code.
+  return 'claude-code'
+}
+
+function short(p: string): string {
+  const home = '/home/'
+  if (p.length > 36) return '…' + p.slice(-34)
+  if (p.startsWith(home)) return '~/' + p.split('/').slice(3).join('/')
+  return p
 }

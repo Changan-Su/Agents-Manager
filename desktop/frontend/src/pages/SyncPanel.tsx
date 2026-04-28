@@ -1,14 +1,6 @@
 import { useEffect, useState } from 'react'
-
-interface SyncStatus {
-  configured: boolean
-  signedIn: boolean
-  backendUrl?: string
-  user?: { id: string; email: string; role: string }
-  machineId?: string
-  machineLabel?: string
-  error?: string
-}
+import { StatusDot } from '../components/StatusDot'
+import type { BackendHealth, SyncStatus } from '../../../electron/preload'
 
 interface SyncSnapshot {
   id: string
@@ -38,35 +30,32 @@ export function SyncPanel() {
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [pushResult, setPushResult] = useState<{ snapshotId: string; sizeBytes: number; fileCount: number } | null>(null)
-  const [restorePreview, setRestorePreview] = useState<{
-    snapshotId: string
-    stagingDir: string
-    files: Array<{ archiveRel: string; absPath: string; selected: boolean }>
-  } | null>(null)
+  const [restorePreview, setRestorePreview] = useState<{ snapshotId: string; stagingDir: string } | null>(null)
 
   useEffect(() => {
-    refreshStatus()
+    void refreshStatus()
   }, [])
 
   async function refreshStatus() {
-    const s = await window.api.sync.status()
-    setStatus(s)
-    if (s.signedIn) {
-      try {
+    try {
+      const s = await window.api.sync.status()
+      setStatus(s)
+      if (s.connected) {
         const list = await window.api.sync.list()
         setSnapshots(list)
-      } catch (e) {
-        setError((e as Error).message)
+      } else {
+        setSnapshots([])
       }
-    } else {
-      setSnapshots([])
+    } catch (e) {
+      setError((e as Error).message)
     }
   }
 
-  async function configure(backendUrl: string) {
+  async function connect(backendUrl: string, apiKey: string) {
     setError(null)
+    setInfo(null)
     try {
-      await window.api.sync.configure(backendUrl)
+      await window.api.sync.connect(backendUrl, apiKey)
       setInfo(`Connected to ${backendUrl}`)
       await refreshStatus()
     } catch (e) {
@@ -74,21 +63,11 @@ export function SyncPanel() {
     }
   }
 
-  async function signIn(email: string, password: string, register: boolean) {
-    setError(null)
-    try {
-      if (register) await window.api.sync.register(email, password)
-      else await window.api.sync.login(email, password)
-      await refreshStatus()
-      setInfo('Signed in.')
-    } catch (e) {
-      setError((e as Error).message)
-    }
-  }
-
-  async function logout() {
-    await window.api.sync.logout()
+  async function disconnect() {
+    if (!confirm('Disconnect this app from the backend?')) return
+    await window.api.sync.disconnect()
     await refreshStatus()
+    setInfo('Disconnected.')
   }
 
   async function push(passphrase: string) {
@@ -116,15 +95,9 @@ export function SyncPanel() {
     setError(null)
     try {
       const { stagingDir } = await window.api.sync.pull(snap.id, passphrase)
-      // Walk the staging dir on main side later; for now, ask user to confirm
-      // a blanket apply. We expose the staging path so power users can inspect.
-      setRestorePreview({
-        snapshotId: snap.id,
-        stagingDir,
-        files: [],
-      })
+      setRestorePreview({ snapshotId: snap.id, stagingDir })
       setInfo(
-        `Snapshot decrypted to ${stagingDir}. Use "Apply" to overwrite local files (each gets a .bak.*.pre-restore backup), or copy files manually from that path.`,
+        `Snapshot decrypted to ${stagingDir}. Open the staging dir and copy what you need into the right agent root, or use the Apply flow.`,
       )
     } catch (e) {
       setError((e as Error).message)
@@ -148,69 +121,67 @@ export function SyncPanel() {
   if (!status) return <div className="empty-state">Loading…</div>
 
   return (
-    <div style={{ maxWidth: 920 }}>
-      <h1 style={{ marginTop: 0 }}>Sync</h1>
+    <div className="page-grid" style={{ maxWidth: 920 }}>
+      <header className="page-header">
+        <div>
+          <h1>Sync</h1>
+          <div className="page-header__sub">
+            Snapshot your agent configs to a self-hosted backend, encrypted client-side with AES-256-GCM.
+          </div>
+        </div>
+      </header>
 
       {error ? <div className="error-banner">{error}</div> : null}
-      {info ? <div className="error-banner" style={{ background: 'var(--badge-b-bg)', color: 'var(--badge-b-fg)' }}>{info}</div> : null}
+      {info ? (
+        <div
+          className="error-banner"
+          style={{ background: 'var(--badge-b-bg)', color: 'var(--badge-b-fg)' }}
+        >
+          {info}
+        </div>
+      ) : null}
 
-      {!status.configured ? (
-        <ConfigureBackend onSubmit={configure} />
-      ) : !status.signedIn ? (
-        <SignInForm
-          backendUrl={status.backendUrl ?? ''}
-          onSubmit={signIn}
-          onChangeBackend={() => configure('')}
+      {!status.connected ? (
+        <ConnectForm
+          existingUrl={status.backendUrl}
+          machineId={status.machineId}
+          machineLabel={status.machineLabel}
+          onSubmit={connect}
+          error={status.error}
         />
       ) : (
-        <SignedIn
+        <Connected
           status={status}
           snapshots={snapshots}
           pushing={pushing}
           pulling={pulling}
           onPush={push}
           onPull={pull}
-          onLogout={logout}
+          onDisconnect={disconnect}
           onDelete={deleteSnap}
         />
       )}
 
       {pushResult ? (
-        <section
-          style={{
-            marginTop: 16,
-            padding: 16,
-            background: 'var(--surface)',
-            border: '1px solid var(--border-sub)',
-            borderRadius: 'var(--radius-md)',
-          }}
-        >
+        <Card>
           <h3 style={{ margin: 0, fontSize: 14 }}>✓ Pushed</h3>
           <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 6 }}>
             Snapshot <code>{pushResult.snapshotId}</code> · {pushResult.fileCount} files ·{' '}
             {formatBytes(pushResult.sizeBytes)} encrypted
           </div>
-        </section>
+        </Card>
       ) : null}
 
       {restorePreview ? (
-        <section
-          style={{
-            marginTop: 16,
-            padding: 16,
-            background: 'var(--surface)',
-            border: '1px solid var(--border-sub)',
-            borderRadius: 'var(--radius-md)',
-          }}
-        >
+        <Card>
           <h3 style={{ margin: 0, fontSize: 14 }}>Snapshot decrypted</h3>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace', marginTop: 6 }}>
+          <div className="muted mono small" style={{ marginTop: 6 }}>
             {restorePreview.stagingDir}
           </div>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 10 }}>
-            Apply (full restore) is intentionally manual in v1: open the staging dir in your file
-            manager and copy what you need into the right agent root. The staging dir is
-            organised as <code>&lt;agent-kind&gt;/&lt;original-relative-path&gt;</code>.
+          <p className="muted small" style={{ marginTop: 10 }}>
+            The staging dir is organised as{' '}
+            <code>&lt;agent-kind&gt;/&lt;original-relative-path&gt;</code>. Copy what you need
+            back into the live agent root, or use the Apply flow once you've reviewed the files.
           </p>
           <button
             className="btn"
@@ -218,109 +189,96 @@ export function SyncPanel() {
           >
             Open staging dir
           </button>
-        </section>
+        </Card>
       ) : null}
     </div>
   )
 }
 
-// ── ConfigureBackend ────────────────────────────────────────────────────
+// ── ConnectForm ─────────────────────────────────────────────────────────────
 
-function ConfigureBackend({ onSubmit }: { onSubmit: (url: string) => void | Promise<void> }) {
-  const [url, setUrl] = useState('http://localhost:8787')
+function ConnectForm({
+  existingUrl,
+  machineId,
+  machineLabel,
+  onSubmit,
+  error,
+}: {
+  existingUrl?: string
+  machineId: string
+  machineLabel: string
+  onSubmit: (url: string, key: string) => void | Promise<void>
+  error?: string
+}) {
+  const [url, setUrl] = useState(existingUrl ?? 'http://localhost:8787')
+  const [apiKey, setApiKey] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function go() {
+    setBusy(true)
+    try {
+      await onSubmit(url.trim(), apiKey.trim())
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <Card>
-      <h3 style={{ margin: 0, fontSize: 15 }}>Connect to a backend</h3>
-      <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 6 }}>
-        Point this app at a self-hosted Agents Manager backend. The server only stores encrypted
-        blobs — your passphrase never leaves this machine.
+      <h3 style={{ margin: 0, fontSize: 15 }}>Connect to backend</h3>
+      <p className="muted small" style={{ marginTop: 6 }}>
+        Paste the server's URL and the master API key (the value of{' '}
+        <code>AGENTS_MANAGER_API_KEY</code> in the server's <code>.env</code>). Anyone
+        with that key can read and write all snapshots, so treat it like an admin password.
       </p>
-      <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
         <input
-          className="input-bare"
+          style={inputStyle}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://your-backend.example"
-          style={inputStyle}
-        />
-        <button className="btn btn--primary" onClick={() => onSubmit(url.trim())}>
-          Connect
-        </button>
-      </div>
-    </Card>
-  )
-}
-
-// ── SignInForm ──────────────────────────────────────────────────────────
-
-function SignInForm({
-  backendUrl,
-  onSubmit,
-  onChangeBackend,
-}: {
-  backendUrl: string
-  onSubmit: (email: string, password: string, register: boolean) => void
-  onChangeBackend: () => void
-}) {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [mode, setMode] = useState<'login' | 'register'>('login')
-  return (
-    <Card>
-      <h3 style={{ margin: 0, fontSize: 15 }}>
-        {mode === 'login' ? 'Sign in' : 'Register'}
-      </h3>
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, fontFamily: 'monospace' }}>
-        {backendUrl}{' '}
-        <button className="btn btn--ghost" style={{ fontSize: 11, padding: '0 4px' }} onClick={onChangeBackend}>
-          change
-        </button>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
-        <input
-          type="email"
-          placeholder="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={inputStyle}
+          autoFocus
         />
         <input
+          style={inputStyle}
           type="password"
-          placeholder="password (min 8 chars)"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={inputStyle}
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder="X-Api-Key (≥32 chars)"
         />
         <div style={{ display: 'flex', gap: 6 }}>
-          <button className="btn btn--primary" onClick={() => onSubmit(email, password, mode === 'register')}>
-            {mode === 'login' ? 'Sign in' : 'Register'}
-          </button>
-          <button
-            className="btn btn--ghost"
-            onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-          >
-            {mode === 'login' ? 'Need an account?' : 'Have an account?'}
+          <button className="btn btn--primary" onClick={() => void go()} disabled={busy}>
+            {busy ? <span className="spinner" /> : null}
+            {busy ? 'Connecting…' : 'Connect'}
           </button>
         </div>
-        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
-          The first registration on a fresh backend becomes admin. Further registrations require{' '}
-          <code>ALLOW_REGISTRATION=true</code> on the server.
+      </div>
+      {error ? <div className="error-banner" style={{ marginTop: 12 }}>{error}</div> : null}
+
+      <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-sub)' }}>
+        <div className="asset-detail__meta-label">This machine</div>
+        <div className="muted mono small">
+          {machineLabel} · {machineId}
+        </div>
+        <p className="muted small" style={{ marginTop: 6 }}>
+          The machine ID is generated locally and sent as <code>X-Machine-Id</code> so the
+          server can group your snapshots without you needing a user account.
         </p>
       </div>
     </Card>
   )
 }
 
-// ── SignedIn ────────────────────────────────────────────────────────────
+// ── Connected ──────────────────────────────────────────────────────────────
 
-function SignedIn({
+function Connected({
   status,
   snapshots,
   pushing,
   pulling,
   onPush,
   onPull,
-  onLogout,
+  onDisconnect,
   onDelete,
 }: {
   status: SyncStatus
@@ -329,7 +287,7 @@ function SignedIn({
   pulling: boolean
   onPush: (pass: string) => void
   onPull: (snap: SyncSnapshot, pass: string) => void
-  onLogout: () => void
+  onDisconnect: () => void
   onDelete: (snap: SyncSnapshot) => void
 }) {
   const [passphrase, setPassphrase] = useState('')
@@ -338,21 +296,33 @@ function SignedIn({
       <Card>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: 15 }}>Signed in as {status.user?.email}</h3>
-            <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace', marginTop: 2 }}>
-              {status.backendUrl} · machine: {status.machineLabel} ({status.machineId?.slice(0, 8)}…)
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <StatusDot kind="ok" />
+              <strong>Connected</strong>
+              <span className="muted small mono">{status.backendUrl}</span>
+            </div>
+            <div className="muted small" style={{ marginTop: 4 }}>
+              Machine <span className="mono">{status.machineLabel}</span>{' '}
+              ({status.machineId.slice(0, 8)}…)
+              {status.health ? (
+                <>
+                  {' '}
+                  · server {status.health.version} · {status.health.machines} machine
+                  {status.health.machines === 1 ? '' : 's'} · {status.health.snapshots} snapshot
+                  {status.health.snapshots === 1 ? '' : 's'}
+                </>
+              ) : null}
             </div>
           </div>
-          <button className="btn" onClick={onLogout}>Sign out</button>
+          <button className="btn" onClick={onDisconnect}>Disconnect</button>
         </div>
       </Card>
 
       <Card>
         <h3 style={{ margin: 0, fontSize: 15 }}>Push snapshot</h3>
-        <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 6 }}>
-          Packs your detected agent configs (Claude Code · Codex · OpenCode · OpenClaw) into a
-          tarball, encrypts it with AES-256-GCM using a key derived from the passphrase below, and
-          uploads to the backend.{' '}
+        <p className="muted small" style={{ marginTop: 6 }}>
+          Packs your detected agent configs into a tarball, encrypts with AES-256-GCM
+          (passphrase via scrypt), then uploads.{' '}
           <strong style={{ color: 'var(--badge-red-fg)' }}>
             Forget the passphrase = lose the snapshot.
           </strong>
@@ -379,7 +349,7 @@ function SignedIn({
       <Card>
         <h3 style={{ margin: 0, fontSize: 15 }}>Snapshots ({snapshots.length})</h3>
         {snapshots.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 6 }}>
+          <p className="muted small" style={{ marginTop: 6 }}>
             No snapshots yet. Push one to get started.
           </p>
         ) : (
@@ -435,7 +405,7 @@ function SnapshotRow({
               <span className="chip chip--neutral" style={{ marginLeft: 8, fontSize: 10 }}>{snapshot.machineId.slice(0, 8)}</span>
             )}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace', marginTop: 2 }}>
+          <div className="muted mono small" style={{ marginTop: 2 }}>
             {snapshot.id} · {formatBytes(snapshot.sizeBytes)}
           </div>
           <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -450,7 +420,11 @@ function SnapshotRow({
           <button className="btn btn--ghost" onClick={() => setOpen(!open)} style={{ fontSize: 11 }}>
             {open ? 'Cancel' : 'Restore'}
           </button>
-          <button className="btn btn--ghost" onClick={onDelete} style={{ fontSize: 11, color: 'var(--badge-red-fg)' }}>
+          <button
+            className="btn btn--ghost"
+            onClick={onDelete}
+            style={{ fontSize: 11, color: 'var(--badge-red-fg)' }}
+          >
             Delete
           </button>
         </div>
@@ -478,7 +452,7 @@ function SnapshotRow({
   )
 }
 
-// ── shared style helpers ───────────────────────────────────────────────
+// ── shared style helpers ──────────────────────────────────────────────────
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
@@ -506,3 +480,6 @@ const inputStyle: React.CSSProperties = {
   fontSize: 13,
   fontFamily: 'inherit',
 }
+
+// keep the type-only import alive for editors that strip unused imports.
+export type { BackendHealth } from '../../../electron/preload'

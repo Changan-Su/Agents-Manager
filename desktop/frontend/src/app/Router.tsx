@@ -6,6 +6,8 @@ import { AssetDetail } from '../pages/AssetDetail'
 import { SettingsPage } from '../pages/Settings'
 import { DiffView } from '../pages/DiffView'
 import { SyncPanel } from '../pages/SyncPanel'
+import { Sessions } from '../pages/Sessions'
+import { Repository } from '../pages/Repository'
 
 export function Router() {
   return (
@@ -13,6 +15,9 @@ export function Router() {
       <Route element={<Shell />}>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/sessions" element={<Sessions />} />
+        <Route path="/repository" element={<Repository />} />
+        <Route path="/repository/:id" element={<Repository />} />
         <Route path="/agent/:kind" element={<AgentView />} />
         <Route path="/agent/:kind/:assetKind" element={<AgentView />} />
         <Route path="/asset/:id" element={<AssetDetail />} />
