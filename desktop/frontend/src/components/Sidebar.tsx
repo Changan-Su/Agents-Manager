@@ -13,12 +13,16 @@ interface SidebarItem {
 }
 
 export function Sidebar() {
-  const { running, runScan, agents } = useScanStore()
-  const { activeBusy, claudeCount, processCount } = useSessionsStore((s) => ({
-    activeBusy: s.claude.filter((c) => c.alive && c.status === 'busy').length,
-    claudeCount: s.claude.filter((c) => c.alive).length,
-    processCount: s.processes.length,
-  }))
+  const running = useScanStore((s) => s.running)
+  const runScan = useScanStore((s) => s.runScan)
+  const agents = useScanStore((s) => s.agents)
+  // Each selector returns a primitive so Zustand can use Object.is and skip
+  // re-renders when nothing actually changed. Returning a fresh object each
+  // call would loop forever (React 18 useSyncExternalStore guard).
+  const claudeSessions = useSessionsStore((s) => s.claude)
+  const processCount = useSessionsStore((s) => s.processes.length)
+  const activeBusy = claudeSessions.filter((c) => c.alive && c.status === 'busy').length
+  const claudeCount = claudeSessions.filter((c) => c.alive).length
   const [connection, setConnection] = useState<'unknown' | 'ok' | 'error' | 'offline'>('unknown')
   const [backendLabel, setBackendLabel] = useState<string>('Not connected')
 
