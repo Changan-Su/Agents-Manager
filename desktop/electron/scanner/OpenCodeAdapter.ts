@@ -289,6 +289,10 @@ export class OpenCodeAdapter implements AgentAdapter {
           def.env && typeof def.env === 'object' && !Array.isArray(def.env)
             ? (def.env as Record<string, string>)
             : undefined,
+        headers:
+          def.headers && typeof def.headers === 'object' && !Array.isArray(def.headers)
+            ? (def.headers as Record<string, string>)
+            : undefined,
         type: typeof def.url === 'string' ? 'http' : 'stdio',
         url: typeof def.url === 'string' ? (def.url as string) : undefined,
         sourcePath: configPath,

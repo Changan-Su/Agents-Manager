@@ -154,7 +154,7 @@ function printScanHelp(): void {
     '',
     'Options:',
     '  --home <path>     Override the home directory (use a fixture/sandbox path).',
-    '  --include-mcp     Include MCP server definitions in the envelope (env vars are redacted).',
+    '  --include-mcp     Include MCP server definitions in the envelope (secrets are redacted).',
     '  -h, --help        Show this help.',
     '',
     'Output: a single JSON envelope on stdout. Exit code 0 on success, 1 on failure.',
@@ -261,7 +261,7 @@ async function runScanCommand(argv: string[]): Promise<number> {
       startedAt: result.startedAt,
       finishedAt: result.finishedAt,
       homeDir: args.homeDir ?? null,
-      summary: adapterSummaries(result.summary),
+      summary: adapterSummaries(result.summary, { sanitizeErrors: true }),
     }
 
     if (args.includeMcp) {

@@ -312,6 +312,10 @@ export class ClaudeCodeAdapter implements AgentAdapter {
               def.env && typeof def.env === 'object' && !Array.isArray(def.env)
                 ? (def.env as Record<string, string>)
                 : undefined,
+            headers:
+              def.headers && typeof def.headers === 'object' && !Array.isArray(def.headers)
+                ? (def.headers as Record<string, string>)
+                : undefined,
             type:
               def.type === 'http' || def.type === 'sse' || def.type === 'stdio'
                 ? def.type

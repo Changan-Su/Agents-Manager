@@ -280,6 +280,10 @@ export class CodexAdapter implements AgentAdapter {
         def.env && typeof def.env === 'object' && !Array.isArray(def.env)
           ? (def.env as Record<string, string>)
           : undefined
+      const headers =
+        def.headers && typeof def.headers === 'object' && !Array.isArray(def.headers)
+          ? (def.headers as Record<string, string>)
+          : undefined
       const url = typeof def.url === 'string' ? (def.url as string) : undefined
       out.push({
         agentKind: KIND,
@@ -287,6 +291,7 @@ export class CodexAdapter implements AgentAdapter {
         command,
         args,
         env,
+        headers,
         type: url ? 'http' : 'stdio',
         url,
         sourcePath: configPath,

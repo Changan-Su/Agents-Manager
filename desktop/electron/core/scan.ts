@@ -98,7 +98,11 @@ export async function runScan(options: RunScanOptions = {}): Promise<RunScanResu
 
 // ── secret redaction ──────────────────────────────────────────────────────
 
-const SECRET_KEY_PATTERN = /(token|secret|password|api[_-]?key|auth|bearer|credential)/i
+const REDACTED_VALUE = '***redacted***'
+const SECRET_KEY_PATTERN = /(token|secret|password|api[_-]?key|auth(?:orization)?|bearer|credential|cookie|session)/i
+const AUTH_SCHEME_PATTERN = /^(?:bearer|basic)$/i
+
+type RedactableMcpServer = McpServer & Record<string, unknown>
 
 /**
  * Returns true if the given key name looks like a credential. Used by the CLI
@@ -106,6 +110,111 @@ const SECRET_KEY_PATTERN = /(token|secret|password|api[_-]?key|auth|bearer|crede
  */
 export function isSecretKey(key: string): boolean {
   return SECRET_KEY_PATTERN.test(key)
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isSensitiveArgKey(key: string): boolean {
+  const normalized = key.replace(/^-+/, '').split(/[=:]/, 1)[0].trim()
+  return isSecretKey(normalized)
+}
+
+function isStandaloneSensitiveArgKey(key: string): boolean {
+  return !/[=:]/.test(key) && isSensitiveArgKey(key)
+}
+
+function redactUrl(value: string): string {
+  try {
+    const url = new URL(value)
+    if (url.username) url.username = REDACTED_VALUE
+    if (url.password) url.password = REDACTED_VALUE
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (isSecretKey(key)) url.searchParams.set(key, REDACTED_VALUE)
+    }
+    return url.toString()
+  } catch {
+    return value
+  }
+}
+
+function redactInlineArg(arg: string): string {
+  const redactedUrl = redactUrl(arg)
+  if (redactedUrl !== arg) return redactInlineAuth(redactedUrl)
+
+  const kv = arg.match(/^((?:-+)?[^=:\s/]+\s*(?:=|:)\s*)(.*)$/)
+  if (kv) {
+    const [, prefix, value] = kv
+    const key = prefix.replace(/\s*(?:=|:)\s*$/, '')
+    if (isSensitiveArgKey(key)) return `${prefix}${REDACTED_VALUE}`
+    return `${prefix}${redactInlineAuth(redactUrl(value))}`
+  }
+
+  return redactInlineAuth(redactUrl(arg))
+}
+
+function redactInlineAuth(value: string): string {
+  return value.replace(/\b(Bearer|Basic)\s+([^\s,;]+)/gi, `$1 ${REDACTED_VALUE}`)
+}
+
+function redactArgs(args: string[] | undefined): string[] | undefined {
+  if (!args) return args
+  const out: string[] = []
+  let redactNextValue = false
+
+  for (const arg of args) {
+    if (redactNextValue) {
+      if (AUTH_SCHEME_PATTERN.test(arg)) {
+        out.push(arg)
+      } else {
+        out.push(REDACTED_VALUE)
+        redactNextValue = false
+      }
+      continue
+    }
+
+    if (isStandaloneSensitiveArgKey(arg) || AUTH_SCHEME_PATTERN.test(arg)) {
+      out.push(arg)
+      redactNextValue = true
+      continue
+    }
+
+    out.push(redactInlineArg(arg))
+  }
+
+  return out
+}
+
+function redactRecordValues(record: unknown): Record<string, unknown> | undefined {
+  if (!isPlainObject(record)) return undefined
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(record)) {
+    out[k] = isSecretKey(k)
+      ? REDACTED_VALUE
+      : typeof v === 'string'
+        ? redactInlineAuth(redactUrl(v))
+        : v
+  }
+  return out
+}
+
+function redactUnknownRecord(record: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(record)) {
+    if (isSecretKey(key)) {
+      out[key] = REDACTED_VALUE
+    } else if (typeof value === 'string') {
+      out[key] = redactInlineAuth(redactUrl(value))
+    } else if (Array.isArray(value)) {
+      out[key] = value.map((item) => (typeof item === 'string' ? redactInlineArg(item) : item))
+    } else if (isPlainObject(value)) {
+      out[key] = redactUnknownRecord(value)
+    } else {
+      out[key] = value
+    }
+  }
+  return out
 }
 
 /**
@@ -116,15 +225,25 @@ export function isSecretKey(key: string): boolean {
 export function redactEnv(
   env: Record<string, string> | undefined,
 ): Record<string, string> | undefined {
-  if (!env) return env
-  const out: Record<string, string> = {}
-  for (const [k, v] of Object.entries(env)) {
-    out[k] = isSecretKey(k) ? '***redacted***' : v
-  }
-  return out
+  return redactRecordValues(env) as Record<string, string> | undefined
 }
 
-/** Returns a shallow copy of an MCP server with env values redacted. */
+/** Returns a shallow copy of an MCP server with secret-bearing fields redacted. */
 export function redactMcpServer(server: McpServer): McpServer {
-  return { ...server, env: redactEnv(server.env) }
+  const out: RedactableMcpServer = { ...(server as RedactableMcpServer) }
+
+  out.env = redactRecordValues(out.env) as Record<string, string> | undefined
+  out.args = redactArgs(server.args)
+  out.url = server.url ? redactUrl(server.url) : server.url
+  out.headers = redactRecordValues(out.headers) as Record<string, string> | undefined
+
+  for (const [key, value] of Object.entries(out)) {
+    if (isSecretKey(key)) {
+      out[key] = REDACTED_VALUE
+    } else if (key !== 'env' && key !== 'args' && key !== 'url' && key !== 'headers' && isPlainObject(value)) {
+      out[key] = redactUnknownRecord(value)
+    }
+  }
+
+  return out as McpServer
 }

@@ -3,11 +3,35 @@
     "fixture-mcp": {
       "type": "stdio",
       "command": "node",
-      "args": ["fake-server.js"],
+      "args": [
+        "fake-server.js",
+        "--token",
+        "do-not-leak-fixture-arg-token-value",
+        "--api-key=do-not-leak-fixture-inline-api-key-value",
+        "--label",
+        "visible-arg-value",
+        "--endpoint=https://fixture-user:do-not-leak-fixture-arg-url-password@example.test/mcp?api_key=do-not-leak-fixture-arg-url-query&visible=visible-arg-url-query-value",
+        "--header",
+        "Authorization: Bearer do-not-leak-fixture-arg-authorization-value",
+        "Bearer",
+        "do-not-leak-fixture-arg-bearer-value"
+      ],
       "env": {
         "FIXTURE_API_KEY": "do-not-leak-fixture-api-key-value",
         "FIXTURE_TOKEN": "do-not-leak-fixture-token-value",
-        "VISIBLE_FIXTURE_FLAG": "visible-fixture-value"
+        "FIXTURE_TOKEN_NUMBER": 12345,
+        "VISIBLE_FIXTURE_FLAG": "visible-fixture-value",
+        "VISIBLE_FIXTURE_COUNT": 7,
+        "VISIBLE_FIXTURE_ENABLED": true
+      },
+      "url": "https://fixture-url-user:do-not-leak-fixture-url-password@example.test/mcp?secret=do-not-leak-fixture-url-secret&visible=visible-url-query-value",
+      "headers": {
+        "Authorization": "Bearer do-not-leak-fixture-header-authorization-value",
+        "X-Api-Key": "do-not-leak-fixture-header-api-key-value",
+        "X-Api-Key-Number": 67890,
+        "X-Visible-Header": "visible-header-value",
+        "X-Visible-Retry": 3,
+        "X-Visible-Enabled": false
       }
     }
   }

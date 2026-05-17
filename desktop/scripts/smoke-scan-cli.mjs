@@ -15,6 +15,16 @@ const malformedCodexSecret = 'do-not-leak-malformed-codex-api-key-value'
 const redactedSecretValues = [
   'do-not-leak-fixture-api-key-value',
   'do-not-leak-fixture-token-value',
+  'do-not-leak-fixture-arg-token-value',
+  'do-not-leak-fixture-inline-api-key-value',
+  'do-not-leak-fixture-arg-url-password',
+  'do-not-leak-fixture-arg-url-query',
+  'do-not-leak-fixture-arg-authorization-value',
+  'do-not-leak-fixture-arg-bearer-value',
+  'do-not-leak-fixture-url-password',
+  'do-not-leak-fixture-url-secret',
+  'do-not-leak-fixture-header-authorization-value',
+  'do-not-leak-fixture-header-api-key-value',
 ]
 
 function fail(message) {
@@ -209,6 +219,12 @@ try {
   assertEqual(claudeResult.json.data.homeDir, resolve(claudeHome), 'claude fixture homeDir')
   assertAllRootsUnder(claudeHome, claudeResult.json.data.summary)
   assertClaudeFixtureSummary(claudeResult.json.data.summary)
+  assert(!('mcpServers' in claudeResult.json.data), 'default scan must not emit MCP definitions')
+  assert(!claudeResult.stdout.includes('fixture-mcp'), 'default scan must not emit MCP server names')
+  assert(!claudeResult.stdout.includes('"env"'), 'default scan must not emit env blocks')
+  for (const secret of redactedSecretValues) {
+    assert(!claudeResult.stdout.includes(secret), `default scan leaked secret value: ${secret}`)
+  }
 
   const doctorResult = runJson(['doctor', '--home', claudeHome], { env: { HOME: decoyHome } })
   assertDoctorEnvelope(doctorResult.json)
@@ -236,6 +252,21 @@ try {
     'doctor leaked malformed config secret value',
   )
 
+  const malformedScanResult = runJson(['scan', '--home', malformedCodexHome], { env: { HOME: decoyHome } })
+  assertScanEnvelope(malformedScanResult.json)
+  assertAllRootsUnder(malformedCodexHome, malformedScanResult.json.data.summary)
+  assert(!('mcpServers' in malformedScanResult.json.data), 'malformed default scan must not emit MCP definitions')
+  const malformedScanCodex = summaryByKind(malformedScanResult.json.data.summary, 'codex')
+  assertEqual(malformedScanCodex.present, true, 'malformed default scan codex fixture should be present')
+  assert(malformedScanCodex.errors.length > 0, 'malformed default scan should surface sanitized parse errors')
+  const malformedScanErrors = malformedScanCodex.errors.join('\n')
+  assert(malformedScanErrors.includes('config.toml parse failed'), 'missing malformed default scan parse error')
+  assert(malformedScanErrors.includes(redactedValue), 'malformed default scan secret should be redacted')
+  assert(
+    !malformedScanResult.stdout.includes(malformedCodexSecret),
+    'default scan leaked malformed config secret value',
+  )
+
   const mcpResult = runJson(['scan', '--home', claudeHome, '--include-mcp'])
   assertScanEnvelope(mcpResult.json)
   for (const secret of redactedSecretValues) {
@@ -249,7 +280,28 @@ try {
   assertEqual(server.name, 'fixture-mcp', 'mcp server name')
   assertEqual(server.env.FIXTURE_API_KEY, redactedValue, 'FIXTURE_API_KEY redaction')
   assertEqual(server.env.FIXTURE_TOKEN, redactedValue, 'FIXTURE_TOKEN redaction')
+  assertEqual(server.env.FIXTURE_TOKEN_NUMBER, redactedValue, 'non-string secret env redaction')
   assertEqual(server.env.VISIBLE_FIXTURE_FLAG, 'visible-fixture-value', 'non-secret env passthrough')
+  assertEqual(server.env.VISIBLE_FIXTURE_COUNT, 7, 'non-string non-secret env passthrough')
+  assertEqual(server.env.VISIBLE_FIXTURE_ENABLED, true, 'boolean non-secret env passthrough')
+  assert(Array.isArray(server.args), 'MCP args should be emitted')
+  assertEqual(server.args[0], 'fake-server.js', 'non-secret arg passthrough')
+  assertEqual(server.args[2], redactedValue, '--token following value redaction')
+  assertEqual(server.args[3], `--api-key=${redactedValue}`, '--api-key inline value redaction')
+  assertEqual(server.args[5], 'visible-arg-value', 'non-secret following arg passthrough')
+  assert(server.args[6].includes(redactedValue), 'arg URL should contain redacted sentinels')
+  assert(server.args[6].includes('visible=visible-arg-url-query-value'), 'arg URL non-secret query passthrough')
+  assert(server.args[8].includes(redactedValue), 'Authorization/Bearer arg value redaction')
+  assertEqual(server.args[9], 'Bearer', 'Bearer marker passthrough')
+  assertEqual(server.args[10], redactedValue, 'Bearer following value redaction')
+  assert(server.url.includes(redactedValue), 'MCP url should contain redacted sentinels')
+  assert(server.url.includes('visible=visible-url-query-value'), 'MCP url non-secret query passthrough')
+  assertEqual(server.headers.Authorization, redactedValue, 'Authorization header redaction')
+  assertEqual(server.headers['X-Api-Key'], redactedValue, 'X-Api-Key header redaction')
+  assertEqual(server.headers['X-Api-Key-Number'], redactedValue, 'non-string secret header redaction')
+  assertEqual(server.headers['X-Visible-Header'], 'visible-header-value', 'non-secret header passthrough')
+  assertEqual(server.headers['X-Visible-Retry'], 3, 'non-string non-secret header passthrough')
+  assertEqual(server.headers['X-Visible-Enabled'], false, 'boolean non-secret header passthrough')
   assert(
     mcpResult.json.warnings.includes('mcp env values were redacted; pass through scan only, not deploy'),
     'missing MCP redaction warning',
