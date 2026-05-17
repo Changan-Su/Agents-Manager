@@ -13,6 +13,8 @@
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
     "typecheck": "tsc --noEmit",
+    "build:scan-cli": "vite build --config electron.scan-cli.vite.config.ts",
+    "smoke:scan-cli": "npm run build:scan-cli && node scripts/smoke-scan-cli.mjs",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3 || true"
   },

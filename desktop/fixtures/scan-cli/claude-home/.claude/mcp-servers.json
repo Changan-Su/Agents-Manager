@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "fixture-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["fake-server.js"],
+      "env": {
+        "FIXTURE_API_KEY": "do-not-leak-fixture-api-key-value",
+        "FIXTURE_TOKEN": "do-not-leak-fixture-token-value",
+        "VISIBLE_FIXTURE_FLAG": "visible-fixture-value"
+      }
+    }
+  }
+}

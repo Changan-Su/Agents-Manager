@@ -1,0 +1,6 @@
+{
+  "version": "fixture-claude-code-0.0.0",
+  "permissions": {
+    "allow": ["Read"]
+  }
+}
