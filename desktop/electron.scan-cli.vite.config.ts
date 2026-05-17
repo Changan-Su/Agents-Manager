@@ -9,17 +9,18 @@ const nodeBuiltins = new Set([
 
 export default defineConfig({
   build: {
-    emptyOutDir: false,
+    emptyOutDir: true,
     outDir: 'out/cli',
     lib: {
       entry: resolve('electron/cli/scan.ts'),
       formats: ['es'],
-      fileName: () => 'scan.js',
+      fileName: () => 'agents-manager.js',
     },
     rollupOptions: {
       external: (id) => nodeBuiltins.has(id),
       output: {
-        entryFileNames: 'scan.js',
+        banner: '#!/usr/bin/env node',
+        entryFileNames: 'agents-manager.js',
       },
     },
     target: 'node22',
