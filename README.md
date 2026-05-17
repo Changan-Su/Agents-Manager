@@ -46,6 +46,26 @@ npm run build
 
 The app scans `~/.claude`, `~/.codex`, `~/.opencode`, and `~/.openclaw` for agents and shows whatever it finds. Editing is **off** by default — flip the switch in **Settings → Enable editing** before any write happens.
 
+### Read-only CLI
+
+Build the CLI, then run it directly from `desktop/out/cli` (or through an npm/global link that exposes the `agents-manager` bin):
+
+```bash
+cd desktop
+npm run build:cli          # alias: npm run build:scan-cli
+node out/cli/agents-manager.js scan
+node out/cli/agents-manager.js doctor
+```
+
+Core commands:
+
+- `agents-manager scan` prints a single JSON envelope with `ok`, `command`, `version`, `data`, `warnings`, and `errors`. `data.summary` contains per-adapter presence, roots, counts, and sanitized errors.
+- `agents-manager doctor` prints a JSON envelope with Node/runtime info plus adapter summaries/counts/errors only.
+- `--home <path>` redirects scanning to a fixture or sandbox home, e.g. `agents-manager scan --home fixtures/scan-cli/claude-home` or `agents-manager doctor --home fixtures/scan-cli/empty-home` when run from `desktop/`.
+- Default `scan` and `doctor` output **do not print MCP server definitions**. Use `agents-manager scan --include-mcp` to include `data.mcpServers`; secret-like env/header/arg/url values are emitted as `***redacted***`.
+
+The CLI is intentionally **read-only**: it runs the scan core and prints JSON, but does not write agent config files, the local DB, IPC state, sync snapshots, or deploy targets.
+
 ### Backend (optional, only for sync)
 
 ```bash
@@ -70,8 +90,10 @@ In the desktop **Sync** panel, paste the same `AGENTS_MANAGER_API_KEY` and the s
 ## Security model
 
 - **Local-first.** Scanning, editing, diffing, and deploy all happen on your machine. Nothing leaves the device unless you explicitly use Sync.
-- **Backup before write.** Every edit produces a `.bak.<timestamp>` and a restorable snapshot in the local DB.
-- **Editing is opt-in.** Off by default; toggle in Settings.
+- **CLI scan/doctor are read-only.** They do not write agent config files, the local DB, IPC state, sync snapshots, or deploy targets.
+- **MCP definitions are minimized by default.** Default CLI `scan` / `doctor` output shows counts only; `scan --include-mcp` includes definitions with secret-like env/header/arg/url values redacted.
+- **Backup before write.** Every desktop edit produces a `.bak.<timestamp>` and a restorable snapshot in the local DB.
+- **Editing is opt-in.** Desktop editing is off by default; toggle in Settings.
 - **Client-side encryption for sync.** AES-256-GCM with a scrypt-derived key from your passphrase. The backend never has the passphrase or the plaintext — it only stores opaque blobs and metadata.
 - **Lose the passphrase → lose the snapshots.** Server admin cannot recover encrypted blobs.
 
@@ -81,7 +103,7 @@ Heavy users of multiple AI coding agents juggle skills, plugins, MCP servers, ag
 
 ## Roadmap
 
-- **Safe Alpha hardening (current)** — tighten scan/edit error paths, expand test coverage, audit IPC and write boundaries.
+- **Safe Alpha hardening (current)** — tighten scan/edit error paths, keep the read-only CLI discoverable, expand test coverage, audit IPC and write boundaries.
 - **Repository & Deploy polish** — richer item metadata, conflict / merge UX, dry-run deploys.
 - **Observability** — structured logs, session timeline, sync/deploy history, backend health surface.
 - **Team & Marketplace** — shared repositories, signed bundles, multi-user backend roles.
