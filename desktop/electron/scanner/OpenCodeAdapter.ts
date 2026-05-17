@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, basename, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import TOML from '@iarna/toml'
-import type { AgentAdapter } from './AgentAdapter'
+import type { AgentAdapter, ScanContext } from './AgentAdapter'
 import type {
   Asset,
   McpServer,
@@ -45,13 +45,14 @@ interface OpenCodeCommandDef {
 export class OpenCodeAdapter implements AgentAdapter {
   readonly kind = KIND
 
-  async detect(): Promise<AgentDetection> {
-    const candidates = this.candidateRoots()
+  async detect(ctx?: ScanContext): Promise<AgentDetection> {
+    const home = ctx?.homeDir ?? homedir()
+    const candidates = this.candidateRoots(home)
     let root = candidates.find((p) => existsSync(join(p, 'opencode.json')))
     if (!root) {
       // Fall back to discovered marketplace `.opencode/` bundles so users see
       // template configs that ship alongside their Claude Code plugins.
-      const marketplaces = join(homedir(), '.claude', 'plugins', 'marketplaces')
+      const marketplaces = join(home, '.claude', 'plugins', 'marketplaces')
       if (existsSync(marketplaces)) {
         for (const mkt of safeReaddir(marketplaces, [])) {
           const candidate = join(marketplaces, mkt, '.opencode')
@@ -120,10 +121,10 @@ export class OpenCodeAdapter implements AgentAdapter {
     }
   }
 
-  private candidateRoots(): string[] {
+  private candidateRoots(home: string): string[] {
     return [
-      join(homedir(), '.opencode'),
-      join(homedir(), '.config', 'opencode'),
+      join(home, '.opencode'),
+      join(home, '.config', 'opencode'),
     ]
   }
 
