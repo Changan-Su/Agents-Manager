@@ -28,6 +28,7 @@ export interface McpServer {
   command?: string
   args?: string[]
   env?: Record<string, string>
+  headers?: Record<string, string>
   type?: 'stdio' | 'http' | 'sse'
   url?: string
   agentKind: AgentKind

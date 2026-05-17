@@ -1,6 +1,12 @@
 # Agents Manager — Backend
 
-Self-hostable sync server for the Agents Manager desktop app.
+Self-hostable sync server for the Agents Manager desktop app. Status: **Safe
+Alpha** — snapshot (blobs + snapshots) and machine endpoints are implemented
+and used by the desktop **Sync** panel today. Repository endpoints (`/api/repository`)
+are implemented server-side and reachable from the desktop's `BackendClient`,
+but the desktop's repository UI currently reads/writes the **local** repository
+store only; remote repository sync is **not yet wired** end-to-end. Hardening
+and observability are still in progress.
 
 - **Stack**: Node 22 + Fastify + better-sqlite3
 - **Auth**: master API key (single tenant), per-machine namespacing
@@ -9,7 +15,8 @@ Self-hostable sync server for the Agents Manager desktop app.
 
 The server only stores opaque blobs — it never parses your agent configs and
 never sees the encryption passphrase. The desktop client encrypts each
-snapshot with AES-256-GCM (passphrase-derived key via scrypt) before uploading.
+snapshot with AES-256-GCM (scrypt-derived key from your passphrase) before
+uploading.
 
 ## Quick start
 

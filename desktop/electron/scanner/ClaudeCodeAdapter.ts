@@ -2,9 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { homedir } from 'node:os'
 import matter from 'gray-matter'
-import type {
-  AgentAdapter,
-} from './AgentAdapter'
+import type { AgentAdapter, ScanContext } from './AgentAdapter'
 import type {
   Asset,
   McpServer,
@@ -18,8 +16,9 @@ const KIND = 'claude-code' as const
 export class ClaudeCodeAdapter implements AgentAdapter {
   readonly kind = KIND
 
-  async detect(): Promise<AgentDetection> {
-    const root = join(homedir(), '.claude')
+  async detect(ctx?: ScanContext): Promise<AgentDetection> {
+    const home = ctx?.homeDir ?? homedir()
+    const root = join(home, '.claude')
     const present = existsSync(root) && existsSync(join(root, 'settings.json'))
     let version: string | undefined
     if (present) {
@@ -312,6 +311,10 @@ export class ClaudeCodeAdapter implements AgentAdapter {
             env:
               def.env && typeof def.env === 'object' && !Array.isArray(def.env)
                 ? (def.env as Record<string, string>)
+                : undefined,
+            headers:
+              def.headers && typeof def.headers === 'object' && !Array.isArray(def.headers)
+                ? (def.headers as Record<string, string>)
                 : undefined,
             type:
               def.type === 'http' || def.type === 'sse' || def.type === 'stdio'

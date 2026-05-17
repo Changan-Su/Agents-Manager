@@ -68,8 +68,13 @@ export function SettingsPage() {
       >
         <h3 style={{ margin: 0, fontSize: 15 }}>About</h3>
         <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 6 }}>
-          Agents Manager v0.1 (Sprint 2 — local edit + diff). Sync via self-hosted backend will
-          arrive in Sprint 3.
+          Agents Manager — Safe Alpha. Local-first control center for AI coding agents:
+          multi-agent scan, asset edit-with-backup, diff, a local repository for skills /
+          MCP servers / agents / commands / hooks (with deploy of those kinds), encrypted
+          snapshot sync, live Claude session listing, and connected-backend status.
+          OpenClaw support is currently an experimental stub (detection only); plugin and
+          settings.json deploy via the repository, and remote repository sync, are not yet
+          wired.
         </p>
       </section>
 
